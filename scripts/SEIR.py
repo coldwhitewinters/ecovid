@@ -18,38 +18,85 @@ class CostQuad:
     
 
 class FitSimulateMixin:
-    def simulate(self, until, step=1):
+    def simulate(self, until):
         y0 = tuple(self.init_values.values())
-        t0 = np.arange(0, until, step)
+        t0 = np.arange(0, until, step=1)
         result = odeint(self._deqn, y0, t0, args=tuple(self.params.values()))
-        self.output = pd.DataFrame(result, columns=self.compartment_names)
-        return self.output
+        self.y = pd.DataFrame(result, columns=self.compartment_names)
+        return self.y
     
     def fit(self, obs, estimate, cost=None, method="nelder-mead", options=None):
         self.params_orig = self.params.copy()
-        obs = obs.reset_index(drop=True)
+        obs = obs.reset_index()
         theta_0 = np.array([self.params[key] for key in estimate])
         if cost is None:
             cost = CostQuad()
         
         def opt_target(theta):
             for k, key in enumerate(estimate):
-                self.params[key] = theta[k]
-            y = self.simulate(until=len(obs))[obs.columns]
-            return cost(y, obs)
+                if key in self.params:
+                    self.params[key] = theta[k]
+                elif key in self.init_values:
+                    self.init_values[key] = theta[k]
+                else:
+                    raise Exception("Wrong Key")
+            cols = obs.columns.intersection(self.compartment_names)
+            y_fit = self.simulate(until=len(obs))[cols]
+            return cost(y_fit, obs)
 
         self.fit_summary = minimize(opt_target, theta_0, method=method, options=options)
         return self.fit_summary
+    
+    def fit_piecewise(self, obs, estimate, cost=None, method="nelder-mead", options=None, 
+                      batch_size=14, keep_remainder=False):
+        self.batches = []
+        self.piecewise_output = []
+        self.piecewise_params = pd.DataFrame(columns=self.params.keys())
 
+        for k in range(len(obs) // batch_size):
+            self.batches.append(obs.iloc[k*batch_size:(k+1)*batch_size, :])
+        
+        j = len(obs) % batch_size
+        if keep_remainder and j != 0:
+            self.batches[-1] = pd.concat((self.batches[-1], obs.iloc[-j:, :]))
+    
+        for k in range(0, len(self.batches)):
+            print("----------------------")
+            print("Batch", k)
+            print()
+
+            print("Fitting...")
+            self.fit(
+                self.batches[k], 
+                estimate=estimate,
+                cost=cost,
+                method=method,
+                options=options,
+            ) 
+
+            print("Simulating...")
+            res = self.simulate(until=len(self.batches[k]) + 1)
+            res, y0 = res.iloc[:-1, :], res.iloc[-1, :]
+            res.index = self.batches[k].index
+            
+            for c in self.compartment_names:
+                self.init_values[c] = y0[c]
+
+            self.piecewise_output.append(res)
+            self.piecewise_params = self.piecewise_params.append(self.params, ignore_index=True)
+            print("Done!")
+        
+        self.y_fit = pd.concat(self.piecewise_output)
+    
 
 class SIR(FitSimulateMixin):
     def __init__(self, population=44e6,
                  r_transmission=0.1, r_recovery=0.01, r_mortality=0.005,
                  init_infected=1, init_recovered=0, init_dead=0):
         self.init_values = {
-            "init_infected": init_infected,
-            "init_recovered": init_recovered,
-            "init_dead": init_dead,
+            "I": init_infected,
+            "R": init_recovered,
+            "D": init_dead,
         }
         self.params = {
             "population": population,
@@ -83,10 +130,10 @@ class SEIR(FitSimulateMixin):
             "r_mortality": r_mortality,
         }
         self.init_values = {
-            "init_exposed": init_exposed,
-            "init_infected": init_infected,
-            "init_recovered": init_recovered,
-            "init_dead": init_dead,
+            "E": init_exposed,
+            "I": init_infected,
+            "R": init_recovered,
+            "D": init_dead,
         }
         self.compartment_names = ["E", "I", "R", "D"]
     
@@ -119,11 +166,11 @@ class SEIRH(FitSimulateMixin):
             "r_mortality": r_mortality,
         }
         self.init_values = {
-            "init_exposed": init_exposed,
-            "init_infected": init_infected,
-            "init_recovered": init_recovered,
-            "init_hospitalized": init_hospitalized,
-            "init_dead": init_dead,
+            "exposed": init_exposed,
+            "infected": init_infected,
+            "recovered": init_recovered,
+            "hospitalized": init_hospitalized,
+            "dead": init_dead,
         }
         self.compartment_names = ["E", "I", "R", "H", "D"]
     
