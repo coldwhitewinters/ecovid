@@ -36,25 +36,31 @@ class FitSimulateMixin:
         ----------
         obs : DataFrame
             Observations to fit model.
-        
         estimate : list or tuple
             List with the names of the parameters to fit.
             Those parameters which are not in the list 
             remain unchanged.
-            
         cost : callable
             Cost function used for fitting.
-            
         method : str
             Optimization method used for fitting. 
             See the docs for the scipy optimization module.
-            
         options : dict
             Parameters and configurations for the optimization method.
         """
         self.params_orig = self.params.copy()
         obs = obs.reset_index()
-        theta_0 = np.array([self.params[key] for key in estimate])
+        
+        # Set initial theta from model parameters 
+        theta_0 = np.zeros(len(estimate))
+        for k, key in enumerate(estimate):
+            if key in self.params:
+                theta_0[k] = self.params[key]
+            elif key in self.init_values:
+                theta_0[k] = self.init_values[key] 
+            else:
+                raise Exception("Wrong key")
+                
         if cost is None:
             cost = CostQuad()
         
@@ -90,32 +96,26 @@ class FitSimulateMixin:
         
         The idea is to divide the observations in several batches, 
         and fit a model to each batch. The initial values used for 
-        fitting each batch are given by the predicted values obtained
+        fitting each batch are given by the last predicted values obtained
         after fitting to the previous batch.
         
         Parameters
         ----------
         obs : DataFrame
             Observations to fit model.
-        
         estimate : list or tuple
             List with the names of the parameters to fit.
             Those parameters which are not in the list 
             remain unchanged.
-            
         cost : callable
             Cost function used for fitting.
-            
         method : str
             Optimization method used for fitting. 
             See the docs for the scipy optimization module.
-            
         options : dict
             Parameters and configurations for the optimization method.
-            
         batch_size : int
             Numbers of observations in each batch.
-            
         keep_remainder : bool
             If the total number of observations is not divisible by the
             batch size, this parameter tells if we concatenate the remainder
@@ -151,8 +151,8 @@ class FitSimulateMixin:
             res, y0 = res.iloc[:-1, :], res.iloc[-1, :]
             res.index = self.batches[k].index
             
-            for c in self.compartment_names:
-                self.init_values[c] = y0[c]
+            for k, c in zip(self.init_values, self.compartment_names):
+                self.init_values[k] = y0[c]
 
             self.piecewise_output.append(res)
             self.piecewise_params = self.piecewise_params.append(self.params, ignore_index=True)
@@ -168,22 +168,16 @@ class SIR(FitSimulateMixin):
     ----------
     population : float
         Susceptible population.
-    
     r_transmission : float
         Rate of transmission.
-        
     r_recovery : float
         Rate of recovery.
-        
     r_mortality : float
         Rate of mortality.
-    
     init_infected : float
         Initial infected.
-        
     init_recovered : float
         Initial recovered.
-        
     init_dead : float
         Initial dead.
     """
@@ -191,9 +185,9 @@ class SIR(FitSimulateMixin):
                  r_transmission=0.1, r_recovery=0.01, r_mortality=0.005,
                  init_infected=1, init_recovered=0, init_dead=0):
         self.init_values = {
-            "I": init_infected,
-            "R": init_recovered,
-            "D": init_dead,
+            "init_infected": init_infected,
+            "init_recovered": init_recovered,
+            "init_dead": init_dead,
         }
         self.params = {
             "population": population,
@@ -220,28 +214,20 @@ class SEIR(FitSimulateMixin):
     ----------
     population : float
         Susceptible population.
-    
     r_transmission : float
         Rate of transmission.
-        
     r_progression : float
         Rate of progression from exposed to infected
-        
     r_recovery : float
         Rate of recovery.
-        
     r_mortality : float
         Rate of mortality.
-        
     init_exposed : float
         Initial exposed.
-    
     init_infected : float
         Initial infected.
-        
     init_recovered : float
         Initial recovered.
-        
     init_dead : float
         Initial dead.
     """    
@@ -258,10 +244,10 @@ class SEIR(FitSimulateMixin):
             "r_mortality": r_mortality,
         }
         self.init_values = {
-            "E": init_exposed,
-            "I": init_infected,
-            "R": init_recovered,
-            "D": init_dead,
+            "init_exposed": init_exposed,
+            "init_infected": init_infected,
+            "init_recovered": init_recovered,
+            "init_dead": init_dead,
         }
         self.compartment_names = ["E", "I", "R", "D"]
     
@@ -283,37 +269,26 @@ class SEIRH(FitSimulateMixin):
     ----------
     population : float
         Susceptible population.
-    
     r_transmission : float
         Rate of transmission.
-        
     r_progression : float
         Rate of progression from exposed to infected.
-    
     r_hospitalized : float
         Rate of hospitalization.
-        
     r_recovery_mild : float
         Rate of recovery for cases not requiring hospitalization.
-        
     r_recovery_hosp : float
         Rate of recovery for cases requiring hospitalization.
-        
     r_mortality : float
         Rate of mortality.
-        
     init_exposed : float
         Initial exposed.
-    
     init_infected : float
         Initial infected.
-        
     init_recovered : float
         Initial recovered.
-        
     init_hospitalized : float
         Initial hospitalized.
-        
     init_dead : float
         Initial dead.
     """    
@@ -334,11 +309,11 @@ class SEIRH(FitSimulateMixin):
             "r_mortality": r_mortality,
         }
         self.init_values = {
-            "exposed": init_exposed,
-            "infected": init_infected,
-            "recovered": init_recovered,
-            "hospitalized": init_hospitalized,
-            "dead": init_dead,
+            "init_exposed": init_exposed,
+            "init_infected": init_infected,
+            "init_recovered": init_recovered,
+            "init_hospitalized": init_hospitalized,
+            "init_dead": init_dead,
         }
         self.compartment_names = ["E", "I", "R", "H", "D"]
     
